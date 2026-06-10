@@ -1,4 +1,4 @@
-# WakeMeThere 
+# WakeMeThere 🌍🚍
 
 **WakeMeThere** is a modern Android travel assistant designed to ensure you never miss your stop again. Whether you're on a bus, train, or car, the app tracks your journey in real-time and triggers a loud alarm before you reach your destination.
 
@@ -13,6 +13,30 @@
 - **Saved Destinations**: Store your favorite or frequent locations in a local Room database for quick access.
 - **Live Journey Map**: Expand the map during your trip to see your real-time position along the shortest road-based route.
 
+## 📸 App Gallery
+
+| Home Screen | Smart Search | Destination Selected |
+| :---: | :---: | :---: |
+| ![Home](screenshots/home.jpg) | ![Search](screenshots/search.jpg) | ![Map](screenshots/map.jpg) |
+
+| Journey Dashboard |
+| :---: |
+| ![Journey](screenshots/journey.jpg) |
+
+## 📥 Getting Started
+
+### For Users
+Simply go to the **[Releases](https://github.com/[YOUR_USERNAME]/WakeMeThere/releases)** section of this repository and download the latest `.apk` file. 
+- This version is **ready to use** and requires no technical setup or API keys.
+- You may need to "Allow installation from unknown sources" on your Android device to install the APK.
+
+### For Developers
+If you are cloning the source code to build or modify the project personally:
+1. Obtain an API key from the [Google Cloud Console](https://console.cloud.google.com/).
+2. Enable the following APIs: **Maps SDK for Android**, **Places API (New)**, and **Routes API**.
+3. Open `app/build.gradle.kts` and replace `"YOUR_API_KEY_HERE"` with your actual key in the `manifestPlaceholders`.
+4. Sync project with Gradle and run.
+
 ## 🛠️ Technical Stack
 
 - **UI**: Jetpack Compose (Material 3)
@@ -25,11 +49,14 @@
 
 ## ⚠️ Known Issues & Setup Requirements
 
-1.  **API Key Configuration**: To use the map, search, and routing features, you must provide your own Google Maps API Key in `app/build.gradle.kts`.
-2.  **Road-Based Routing (403 Error)**: 
-    - **Issue**: The blue path might appear as a straight line if the **Routes API (New)** is not fully set up.
-    - **Fix**: Ensure your Google Cloud project has an active **Billing Account** linked and that the "Routes API" is enabled and unrestricted for your API key.
-3.  **Permissions**: The app requires "Always Allow" location access and notification permissions to trigger alarms reliably in the background.
+**Note on Routing (Straight Line Path):**
+If the journey path appears as a **straight line** instead of following roads, this is a known setup requirement related to Google Cloud project configuration.
+
+### For Developers (Personal Builds)
+If you are building the app from source and encounter this issue, follow these steps to resolve it:
+1.  **Enable Routes API**: In your Google Cloud Console, ensure the **"Routes API"** (New) is enabled.
+2.  **Check Billing**: The modern Routes API **requires** a billing account to be linked to your project, even if usage stays within the $200 free monthly credit.
+3.  **API Restrictions**: If your API key is restricted, go to **APIs & Services > Credentials** and ensure "Routes API" is added to the "Allowed APIs" list.
 
 ## 📦 How to Build
 
