@@ -1,4 +1,4 @@
-# WakeMeThere 🌍🚍
+# WakeMeThere
 
 **WakeMeThere** is a modern Android travel assistant designed to ensure you never miss your stop again. Whether you're on a bus, train, or car, the app tracks your journey in real-time and triggers a loud alarm before you reach your destination.
 
