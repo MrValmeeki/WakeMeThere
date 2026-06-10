@@ -432,20 +432,6 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
                 }
             }
         }
-
-        // Error Dialog for Routing
-        routeErrorMessage?.let { message ->
-            AlertDialog(
-                onDismissRequest = { routeErrorMessage = null },
-                title = { Text("Routing Error") },
-                text = { Text(message) },
-                confirmButton = {
-                    TextButton(onClick = { routeErrorMessage = null }) {
-                        Text("OK")
-                    }
-                }
-            )
-        }
     }
 }
 
