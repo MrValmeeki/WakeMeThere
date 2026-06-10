@@ -17,7 +17,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
-        manifestPlaceholders["MAPS_API_KEY"] = "YOUR_API_KEY"
+        manifestPlaceholders["MAPS_API_KEY"] = "AIzaSyCImTAJmEO-6vPXkmsmtDUyBPNF8ZYu5xo"
     }
 
 
