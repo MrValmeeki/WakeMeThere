@@ -37,10 +37,20 @@ If you are cloning the source code to build or modify the project personally:
 - **Architecture**: MVVM with ViewModel and StateFlow
 - **Service**: Android Foreground Service for persistent tracking
 
-## ⚠️ Important Note on Routing
-If the journey path appears as a **straight line** instead of following roads:
-- **For Release APK**: Ensure your Google Cloud project has an active **Billing Account** linked and that the "Routes API" is unrestricted for your API key.
-- **For Personal Builds**: Check that your own API Key has the **Routes API** enabled and that billing is configured for your project.
+## ⚠️ Known Issues & Setup Requirements
+
+**Note on Routing (Straight Line Path):**
+If the journey path appears as a **straight line** instead of following roads, this is a known setup requirement related to Google Cloud project configuration.
+
+### For Developers (Personal Builds)
+If you are building the app from source and encounter this issue, follow these steps to resolve it:
+1.  **Enable Routes API**: In your Google Cloud Console, ensure the **"Routes API"** (New) is enabled.
+2.  **Check Billing**: The modern Routes API **requires** a billing account to be linked to your project, even if usage stays within the $200 free monthly credit.
+3.  **API Restrictions**: If your API key is restricted, go to **APIs & Services > Credentials** and ensure "Routes API" is added to the "Allowed APIs" list.
+4.  **Cleartext Traffic**: Ensure `android:usesCleartextTraffic="true"` is set in the `AndroidManifest.xml` (already included in source) to allow the app to communicate with Google's routing servers.
+
+### For Users (Release APK)
+Ensure you have a stable internet connection. If the issue persists, the built-in API key may have reached its quota or billing restrictions.
 
 ## 📦 How to Build
 
