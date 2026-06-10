@@ -17,11 +17,11 @@
 
 | Home Screen | Smart Search | Destination Selected |
 | :---: | :---: | :---: |
-| ![Home](screenshots/home.jpg) | ![Search](screenshots/search.jpg) | ![Map](screenshots/map.jpg) |
+| ![Home](screenshots/home.jpeg) | ![Search](screenshots/search.jpeg) | ![Map](screenshots/map.jpeg) |
 
 | Journey Dashboard |
 | :---: |
-| ![Journey](screenshots/journey.jpg) |
+| ![Journey](screenshots/journey.jpeg) |
 
 ## 📥 Getting Started
 
