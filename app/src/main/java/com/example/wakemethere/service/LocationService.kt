@@ -66,6 +66,16 @@ class LocationService : Service() {
                         triggerAlarm()
                     } else {
                         updateNotification("Tracking: ETA ${eta} min ($distance m)")
+                        
+                        // Dynamically adjust update frequency based on distance
+                        // If we are very far (ETA > 2x threshold), we don't need updates every 15s
+                        if (eta > thresholdMinutes * 2) {
+                            adjustLocationRequest(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 60000L)
+                        } else if (eta > thresholdMinutes + 5) {
+                            adjustLocationRequest(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 30000L)
+                        } else {
+                            adjustLocationRequest(Priority.PRIORITY_HIGH_ACCURACY, 10000L)
+                        }
                     }
 
                 }
@@ -101,9 +111,17 @@ class LocationService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
-            .setMinUpdateIntervalMillis(5000)
+        // Optimize battery by using BALANCED_POWER_ACCURACY when the user is far away
+        // High accuracy is only needed when we get close to the destination
+        val priority = if (lastETA > thresholdMinutes + 5) {
+            Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        } else {
+            Priority.PRIORITY_HIGH_ACCURACY
+        }
+
+        val locationRequest = LocationRequest.Builder(priority, 15000) // Increased to 15s
+            .setMinUpdateIntervalMillis(10000)
+            .setMaxUpdateDelayMillis(30000) // Allow batching for better battery
             .build()
 
         try {
@@ -118,6 +136,25 @@ class LocationService : Service() {
         alarmHelper.stopAlarm()
         stopForeground(true)
         stopSelf()
+    }
+
+    private var currentPriority: Int = -1
+    private var currentInterval: Long = -1L
+
+    private fun adjustLocationRequest(priority: Int, interval: Long) {
+        if (currentPriority == priority && currentInterval == interval) return
+        
+        currentPriority = priority
+        currentInterval = interval
+
+        val locationRequest = LocationRequest.Builder(priority, interval)
+            .setMinUpdateIntervalMillis(interval / 2)
+            .setMaxUpdateDelayMillis(interval * 2)
+            .build()
+
+        try {
+            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, null)
+        } catch (e: SecurityException) { }
     }
 
 

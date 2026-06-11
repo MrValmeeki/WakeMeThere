@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -101,12 +102,16 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
                     location?.let {
                         val userLatLng = LatLng(it.latitude, it.longitude)
                         userLocation = userLatLng
-                        mapInstance?.animateCamera(
-                            CameraUpdateFactory.newLatLngZoom(
-                                MapLibreLatLng(it.latitude, it.longitude), 
-                                14.0
+                        
+                        // Only move to user location if NO destination is currently selected
+                        if (selectedLocation == null) {
+                            mapInstance?.animateCamera(
+                                CameraUpdateFactory.newLatLngZoom(
+                                    MapLibreLatLng(it.latitude, it.longitude), 
+                                    14.0
+                                )
                             )
-                        )
+                        }
                     }
                 }
             } catch (e: SecurityException) {
@@ -222,6 +227,23 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
                                 locationComponent?.activateLocationComponent(options)
                                 locationComponent?.isLocationComponentEnabled = true
                             }
+
+                            // If a location is already selected when style loads (like from saved screen)
+                            // Draw it immediately
+                            selectedLocation?.let { loc ->
+                                destinationMarker?.let { map.removeMarker(it) }
+                                destinationMarker = map.addMarker(
+                                    MarkerOptions()
+                                        .position(MapLibreLatLng(loc.latitude, loc.longitude))
+                                        .title(destinationName)
+                                )
+                                map.animateCamera(
+                                    CameraUpdateFactory.newLatLngZoom(
+                                        MapLibreLatLng(loc.latitude, loc.longitude),
+                                        SEARCH_RESULT_ZOOM
+                                    )
+                                )
+                            }
                         }
                     }
                 }
@@ -303,6 +325,14 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
         }
 
         if (selectedLocation != null && !isSearchActive) {
+            // Update search bar text if a location is selected but search isn't active
+            // This ensures saved locations show their name in the bar
+            LaunchedEffect(destinationName) {
+                if (destinationName.isNotEmpty() && searchQuery.isEmpty()) {
+                    searchQuery = destinationName
+                }
+            }
+
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -353,6 +383,34 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
                     }
                 }
             }
+        }
+
+        // Floating Action Button for Current Location
+        FloatingActionButton(
+            onClick = {
+                if (hasLocationPermission) {
+                    val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                    try {
+                        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                            location?.let {
+                                mapInstance?.animateCamera(
+                                    CameraUpdateFactory.newLatLngZoom(
+                                        MapLibreLatLng(it.latitude, it.longitude),
+                                        15.0
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: SecurityException) { }
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = if (selectedLocation != null && !isSearchActive) 180.dp else 16.dp, end = 16.dp),
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ) {
+            Icon(Icons.Default.MyLocation, contentDescription = "My Location")
         }
     }
 }
