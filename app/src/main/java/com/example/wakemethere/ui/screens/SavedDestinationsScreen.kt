@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.wakemethere.ui.JourneyViewModel
 import com.example.wakemethere.ui.navigation.Screen
-import com.google.android.gms.maps.model.LatLng
+import com.example.wakemethere.util.LatLng
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

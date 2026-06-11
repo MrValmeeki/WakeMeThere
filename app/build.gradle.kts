@@ -16,8 +16,6 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        
-        manifestPlaceholders["MAPS_API_KEY"] = "YOUR_API_KEY"
     }
 
 
@@ -46,6 +44,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
 
 
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -53,13 +52,9 @@ dependencies {
     // Navigation
     implementation(libs.androidx.navigation.compose)
 
-    // Google Maps & Location
-    implementation(libs.google.maps.compose)
-    implementation(libs.play.services.maps)
+    // MapLibre & Location
+    implementation(libs.maplibre.android)
     implementation(libs.play.services.location)
-    implementation("com.google.android.libraries.places:places:5.2.0")
-
-
 
     // Room
     implementation(libs.androidx.room.runtime)

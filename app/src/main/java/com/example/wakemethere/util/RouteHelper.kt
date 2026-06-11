@@ -1,9 +1,6 @@
 package com.example.wakemethere.util
 
-import android.content.Context
-import android.content.pm.PackageManager
 import android.util.Log
-import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -19,91 +16,67 @@ object RouteHelper {
         val errorDetail: String? = null
     )
 
+    /**
+     * Fetches the shortest driving route using OSRM (Open Source Routing Machine).
+     */
     suspend fun fetchShortestDrivingRoute(
-        context: Context,
         start: LatLng,
         destination: LatLng
     ): RouteResult? = withContext(Dispatchers.IO) {
-        val apiKey = try {
-            val appInfo = context.packageManager.getApplicationInfo(
-                context.packageName,
-                PackageManager.GET_META_DATA
-            )
-            appInfo.metaData.getString("com.google.android.geo.API_KEY")
-        } catch (e: Exception) {
-            null
-        } ?: return@withContext null
+        // OSRM expects {longitude},{latitude}
+        // Use http as fallback if https has issues on some devices
+        val baseUrl = "https://router.project-osrm.org/route/v1/driving/"
+        val coordinates = "${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}"
+        val params = "?overview=full&geometries=polyline"
+        val urlString = baseUrl + coordinates + params
 
-        val urlString = "https://routes.googleapis.com/directions/v2:computeRoutes"
-
-        val requestBody = JSONObject().apply {
-            put("origin", JSONObject().apply {
-                put("location", JSONObject().apply {
-                    put("latLng", JSONObject().apply {
-                        put("latitude", start.latitude)
-                        put("longitude", start.longitude)
-                    })
-                })
-            })
-            put("destination", JSONObject().apply {
-                put("location", JSONObject().apply {
-                    put("latLng", JSONObject().apply {
-                        put("latitude", destination.latitude)
-                        put("longitude", destination.longitude)
-                    })
-                })
-            })
-            put("travelMode", "DRIVE")
-            put("routingPreference", "TRAFFIC_UNAWARE")
-        }
+        Log.d("RouteHelper", "Fetching route: $urlString")
 
         try {
             val url = URL(urlString)
             val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("X-Goog-Api-Key", apiKey)
-            connection.setRequestProperty("X-Goog-FieldMask", "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline")
-            connection.doOutput = true
-
-            connection.outputStream.use { os ->
-                val input = requestBody.toString().toByteArray(Charsets.UTF_8)
-                os.write(input, 0, input.size)
-            }
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 8000
+            connection.readTimeout = 8000
+            connection.setRequestProperty("User-Agent", "WakeMeThere-Android-App")
 
             val responseCode = connection.responseCode
+            Log.d("RouteHelper", "Response Code: $responseCode")
+
             if (responseCode != 200) {
                 val errorText = connection.errorStream?.bufferedReader()?.use { it.readText() }
-                Log.e("RouteHelper", "Routes API Error Code: $responseCode. Message: $errorText")
-                
-                val userFriendlyMessage = when(responseCode) {
-                    403 -> "403 Forbidden: Ensure 'Routes API' is enabled and your API Key has no restrictions preventing its use."
-                    401 -> "401 Unauthorized: Invalid API Key."
-                    else -> "Routes API Error: $responseCode - $errorText"
-                }
-                return@withContext RouteResult(emptyList(), 0, 0, userFriendlyMessage)
+                Log.e("RouteHelper", "OSRM API Error: $responseCode - $errorText")
+                return@withContext RouteResult(emptyList(), 0, 0, "OSRM Error: $responseCode")
             }
 
             val responseText = connection.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(responseText)
-            val routes = json.optJSONArray("routes")
+            val code = json.optString("code")
             
+            if (code != "Ok") {
+                Log.e("RouteHelper", "OSRM returned code: $code")
+                return@withContext RouteResult(emptyList(), 0, 0, "No routes found (Code: $code).")
+            }
+
+            val routes = json.optJSONArray("routes")
             if (routes == null || routes.length() == 0) {
+                Log.e("RouteHelper", "OSRM returned no routes")
                 return@withContext RouteResult(emptyList(), 0, 0, "No routes found.")
             }
 
             val route = routes.getJSONObject(0)
-            // Fix for duration and distance in Routes API
-            val distance = route.optInt("distanceMeters")
-            val durationString = route.optString("duration")
-            val duration = durationString.replace("s", "").toDoubleOrNull()?.toInt() ?: 0
+            val distance = route.optDouble("distance").toInt()
+            val duration = route.optDouble("duration").toInt()
             
-            val encodedPolyline = route.getJSONObject("polyline").getString("encodedPolyline")
-            val points = decodePolyline(encodedPolyline)
+            val encodedPolyline = route.optString("geometry")
+            Log.d("RouteHelper", "Encoded polyline length: ${encodedPolyline.length}")
+            
+            val points = if (encodedPolyline.isNotEmpty()) decodePolyline(encodedPolyline) else emptyList()
+            Log.d("RouteHelper", "Decoded ${points.size} points")
 
             RouteResult(points, distance, duration)
         } catch (e: Exception) {
-            Log.e("RouteHelper", "Failed to fetch route", e)
+            Log.e("RouteHelper", "Failed to fetch route from OSRM", e)
             null
         }
     }

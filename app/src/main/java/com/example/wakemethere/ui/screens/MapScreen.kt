@@ -24,41 +24,44 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import com.example.wakemethere.service.LocationService
 import com.example.wakemethere.ui.JourneyViewModel
 import com.example.wakemethere.ui.navigation.Screen
+import com.example.wakemethere.util.LatLng
 import com.example.wakemethere.util.RouteHelper
-import com.google.android.gms.common.api.ApiException
+import com.example.wakemethere.util.rememberMapViewWithLifecycle
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.libraries.places.api.Places
-import com.google.android.libraries.places.api.model.AutocompletePrediction
-import com.google.android.libraries.places.api.model.AutocompleteSessionToken
-import com.google.android.libraries.places.api.model.Place
-import com.google.android.libraries.places.api.net.FetchPlaceRequest
-import com.google.android.libraries.places.api.net.FindAutocompletePredictionsRequest
-import com.google.maps.android.compose.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.annotations.PolylineOptions
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng as MapLibreLatLng
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.location.LocationComponent
+import org.maplibre.android.location.LocationComponentActivationOptions
 import java.io.IOException
 import java.util.Locale
 
 private const val MIN_SEARCH_QUERY_LENGTH = 2
 private const val SEARCH_DEBOUNCE_MS = 250L
-private const val SEARCH_RESULT_ZOOM = 15f
+private const val SEARCH_RESULT_ZOOM = 15.0
 private const val MAX_GEOCODER_RESULTS = 5
 
 private data class SearchSuggestion(
     val title: String,
     val subtitle: String? = null,
-    val placeId: String? = null,
     val latLng: LatLng? = null
 )
 
@@ -66,7 +69,6 @@ private data class SearchSuggestion(
 @Composable
 fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
     val context = LocalContext.current
-    val placesClient = remember { Places.createClient(context) }
     val scope = rememberCoroutineScope()
 
     var searchQuery by remember { mutableStateOf("") }
@@ -74,22 +76,19 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
     var suggestions by remember { mutableStateOf<List<SearchSuggestion>>(emptyList()) }
     var searchError by remember { mutableStateOf<String?>(null) }
     var isSearching by remember { mutableStateOf(false) }
-    var isPlacesSearchAvailable by remember { mutableStateOf(true) }
-    var autocompleteSessionToken by remember { mutableStateOf(AutocompleteSessionToken.newInstance()) }
+    
     val selectedLocation by viewModel.selectedLocation
     val destinationName by viewModel.destinationName
     var isSaved by remember { mutableStateOf(false) }
     var routePoints by remember { mutableStateOf<List<LatLng>>(emptyList()) }
-    var routeErrorMessage by remember { mutableStateOf<String?>(null) }
-
-    val defaultPos = LatLng(1.35, 103.87) // Singapore default
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(defaultPos, 10f)
-    }
 
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
+    
+    val mapView = rememberMapViewWithLifecycle()
+    var mapInstance by remember { mutableStateOf<MapLibreMap?>(null) }
+    var destinationMarker by remember { mutableStateOf<org.maplibre.android.annotations.Marker?>(null) }
+    var routePolyline by remember { mutableStateOf<org.maplibre.android.annotations.Polyline?>(null) }
 
-    // Centering on current location on start
     val hasLocationPermission = ContextCompat.checkSelfPermission(
         context, Manifest.permission.ACCESS_FINE_LOCATION
     ) == PackageManager.PERMISSION_GRANTED
@@ -102,15 +101,16 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
                     location?.let {
                         val userLatLng = LatLng(it.latitude, it.longitude)
                         userLocation = userLatLng
-                        scope.launch {
-                            cameraPositionState.animate(
-                                CameraUpdateFactory.newLatLngZoom(userLatLng, 15f)
+                        mapInstance?.animateCamera(
+                            CameraUpdateFactory.newLatLngZoom(
+                                MapLibreLatLng(it.latitude, it.longitude), 
+                                14.0
                             )
-                        }
+                        )
                     }
                 }
             } catch (e: SecurityException) {
-                Log.e("MapScreen", "Permission denied even after check", e)
+                Log.e("MapScreen", "Permission denied", e)
             }
         }
     }
@@ -120,23 +120,19 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
         val destination = selectedLocation
 
         if (start != null && destination != null) {
-            val result = com.example.wakemethere.util.RouteHelper.fetchShortestDrivingRoute(context, start, destination)
+            val result = RouteHelper.fetchShortestDrivingRoute(start, destination)
             if (result != null && result.points.isNotEmpty()) {
                 routePoints = result.points
-                routeErrorMessage = null
             } else {
                 routePoints = listOf(start, destination)
-                routeErrorMessage = result?.errorDetail ?: "Unknown routing error occurred."
                 Toast.makeText(context, "Road path failed. Using straight line.", Toast.LENGTH_SHORT).show()
             }
         } else {
             routePoints = emptyList()
-            routeErrorMessage = null
         }
     }
 
-
-    LaunchedEffect(searchQuery, isSearchActive, autocompleteSessionToken) {
+    LaunchedEffect(searchQuery, isSearchActive) {
         val query = searchQuery.trim()
 
         if (!isSearchActive || query.length < MIN_SEARCH_QUERY_LENGTH) {
@@ -150,156 +146,89 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
         isSearching = true
         searchError = null
 
-        if (!isPlacesSearchAvailable) {
-            val geocoderSuggestions = geocodeLocationName(context, query)
-            if (searchQuery.trim() == query && isSearchActive) {
-                suggestions = geocoderSuggestions
-                searchError = if (geocoderSuggestions.isEmpty()) {
-                    "No matching places found."
-                } else {
-                    null
-                }
-                isSearching = false
-            }
+        val geocoderSuggestions = geocodeLocationName(context, query)
+        if (searchQuery.trim() == query && isSearchActive) {
+            suggestions = geocoderSuggestions
+            searchError = if (geocoderSuggestions.isEmpty()) "No matching places found." else null
+            isSearching = false
+        }
+    }
+
+    LaunchedEffect(selectedLocation) {
+        val map = mapInstance ?: return@LaunchedEffect
+        val loc = selectedLocation ?: run {
+            destinationMarker?.let { map.removeMarker(it) }
+            destinationMarker = null
             return@LaunchedEffect
         }
 
-        val request = FindAutocompletePredictionsRequest.builder()
-            .setQuery(query)
-            .setSessionToken(autocompleteSessionToken)
-            .build()
+        // Move Camera
+        map.animateCamera(
+            CameraUpdateFactory.newLatLngZoom(
+                MapLibreLatLng(loc.latitude, loc.longitude),
+                SEARCH_RESULT_ZOOM
+            )
+        )
 
-        placesClient.findAutocompletePredictions(request)
-            .addOnSuccessListener { response ->
-                if (searchQuery.trim() == query && isSearchActive) {
-                    val placesSuggestions = response.autocompletePredictions.map { prediction ->
-                        prediction.toSearchSuggestion()
-                    }
-
-                    if (placesSuggestions.isNotEmpty()) {
-                        suggestions = placesSuggestions
-                        searchError = null
-                        isSearching = false
-                    } else {
-                        scope.launch {
-                            val geocoderSuggestions = geocodeLocationName(context, query)
-                            if (searchQuery.trim() == query && isSearchActive) {
-                                suggestions = geocoderSuggestions
-                                searchError = if (geocoderSuggestions.isEmpty()) {
-                                    "No matching places found."
-                                } else {
-                                    null
-                                }
-                                isSearching = false
-                            }
-                        }
-                    }
-                }
-            }
-            .addOnFailureListener {
-                if (searchQuery.trim() == query && isSearchActive) {
-                    if (it.isPlacesAccessDenied()) {
-                        isPlacesSearchAvailable = false
-                    }
-
-                    scope.launch {
-                        val geocoderSuggestions = geocodeLocationName(context, query)
-                        if (searchQuery.trim() == query && isSearchActive) {
-                            suggestions = geocoderSuggestions
-                            searchError = if (geocoderSuggestions.isEmpty()) {
-                                it.toSearchErrorMessage()
-                            } else {
-                                null
-                            }
-                            isSearching = false
-                        }
-                    }
-                }
-                Log.e("MapScreen", "Places API autocomplete error", it)
-            }
-    }
-
-    fun selectDestination(latLng: LatLng, name: String) {
-        viewModel.setDestination(latLng, name)
-        searchQuery = name
-        suggestions = emptyList()
-        searchError = null
-        isSearching = false
-        isSearchActive = false
-        isSaved = false
-        autocompleteSessionToken = AutocompleteSessionToken.newInstance()
-        cameraPositionState.move(
-            CameraUpdateFactory.newLatLngZoom(latLng, SEARCH_RESULT_ZOOM)
+        // Update Marker
+        destinationMarker?.let { map.removeMarker(it) }
+        destinationMarker = map.addMarker(
+            MarkerOptions()
+                .position(MapLibreLatLng(loc.latitude, loc.longitude))
+                .title(destinationName)
         )
     }
 
-    fun selectSuggestion(suggestion: SearchSuggestion) {
-        suggestion.latLng?.let {
-            selectDestination(it, suggestion.title)
-            return
+    LaunchedEffect(routePoints) {
+        val map = mapInstance ?: return@LaunchedEffect
+        routePolyline?.let { map.removePolyline(it) }
+        
+        if (routePoints.size >= 2) {
+            val mapLibrePoints = routePoints.map { MapLibreLatLng(it.latitude, it.longitude) }
+            routePolyline = map.addPolyline(
+                PolylineOptions()
+                    .addAll(mapLibrePoints)
+                    .color(android.graphics.Color.parseColor("#1B1B1B"))
+                    .width(5f)
+            )
+        } else {
+            routePolyline = null
         }
-
-        val placeId = suggestion.placeId ?: return
-        val placeFields = listOf(
-            Place.Field.ID,
-            Place.Field.DISPLAY_NAME,
-            Place.Field.FORMATTED_ADDRESS,
-            Place.Field.LOCATION
-        )
-        val request = FetchPlaceRequest.newInstance(placeId, placeFields)
-
-        placesClient.fetchPlace(request)
-            .addOnSuccessListener { response ->
-                val place = response.place
-                val latLng = place.location
-
-                if (latLng != null) {
-                    val name = place.displayName ?: place.formattedAddress ?: "Destination"
-                    selectDestination(latLng, name)
-                } else {
-                    searchError = "That place has no map location. Try another result."
-                }
-            }
-            .addOnFailureListener {
-                searchError = it.toPlaceDetailsErrorMessage()
-                Log.e("MapScreen", "Places API fetch place error", it)
-            }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Adjust map padding so UI buttons (My Location) are below the SearchBar
-        // AND above the bottom card if it's visible.
-        val topPadding = if (isSearchActive) 0.dp else 100.dp
-        val bottomPadding = if (selectedLocation != null && !isSearchActive) 200.dp else 16.dp
-        
-        GoogleMap(
+        AndroidView(
+            factory = { mapView },
             modifier = Modifier.fillMaxSize(),
-            cameraPositionState = cameraPositionState,
-            properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
-            uiSettings = MapUiSettings(myLocationButtonEnabled = hasLocationPermission),
-            contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding),
-            onMapClick = {
-                viewModel.setDestination(it, "Dropped Pin")
-                isSaved = false
-            }
-        ) {
-            selectedLocation?.let {
-                Marker(
-                    state = MarkerState(position = it),
-                    title = destinationName
-                )
-                
-                userLocation?.let { start ->
-                    Polyline(
-                        points = routePoints.ifEmpty { listOf(start, it) },
-                        color = Color.Blue,
-                        width = 8f
-                    )
+            update = { mv ->
+                mv.getMapAsync { map ->
+                    if (mapInstance == null) {
+                        mapInstance = map
+                        map.addOnMapClickListener { point ->
+                            val clickedLatLng = LatLng(point.latitude, point.longitude)
+                            selectDestination(viewModel, clickedLatLng, "Dropped Pin")
+                            isSaved = false
+                            true
+                        }
+                    }
+                    
+                    if (map.style == null) {
+                        map.setStyle(Style.Builder().fromUri("https://basemaps.cartocdn.com/gl/positron-gl-style/style.json")) { style ->
+                            if (hasLocationPermission) {
+                                val locationComponent = map.locationComponent
+                                val options = LocationComponentActivationOptions.builder(context, style)
+                                    .useDefaultLocationEngine(true)
+                                    .build()
+                                locationComponent?.activateLocationComponent(options)
+                                locationComponent?.isLocationComponentEnabled = true
+                            }
+                        }
+                    }
                 }
             }
-        }
+        )
 
-        // Material 3 SearchBar
+        // UI components (SearchBar, Card) same as before...
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -310,11 +239,13 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
         ) {
             SearchBar(
                 query = searchQuery,
-                onQueryChange = { query ->
-                    searchQuery = query
-                },
+                onQueryChange = { searchQuery = it },
                 onSearch = {
-                    suggestions.firstOrNull()?.let(::selectSuggestion) ?: run {
+                    suggestions.firstOrNull()?.let { 
+                        selectDestination(viewModel, it.latLng!!, it.title)
+                        searchQuery = it.title
+                        isSearchActive = false
+                    } ?: run {
                         isSearchActive = false
                     }
                 },
@@ -342,38 +273,29 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize()
-                ) {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
                     if (isSearching) {
                         item {
                             ListItem(
                                 headlineContent = { Text("Searching places...") },
-                                leadingContent = {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                }
+                                leadingContent = { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp) }
                             )
                         }
                     }
-
                     searchError?.let { message ->
-                        item {
-                            ListItem(
-                                headlineContent = { Text(message) }
-                            )
-                        }
+                        item { ListItem(headlineContent = { Text(message) }) }
                     }
-
                     items(suggestions) { suggestion ->
                         ListItem(
                             headlineContent = { Text(suggestion.title) },
-                            supportingContent = {
-                                suggestion.subtitle?.let { Text(it) }
-                            },
-                            modifier = Modifier.clickable { selectSuggestion(suggestion) }
+                            supportingContent = { suggestion.subtitle?.let { Text(it) } },
+                            modifier = Modifier.clickable { 
+                                suggestion.latLng?.let { 
+                                    selectDestination(viewModel, it, suggestion.title)
+                                    searchQuery = suggestion.title
+                                    isSearchActive = false
+                                } 
+                            }
                         )
                     }
                 }
@@ -435,36 +357,6 @@ fun MapScreen(navController: NavController, viewModel: JourneyViewModel) {
     }
 }
 
-private fun Exception.toSearchErrorMessage(): String {
-    val apiException = this as? ApiException
-    return when (apiException?.statusCode) {
-        9011 -> "Places access denied. Enable Places API (New) for this key and check package/SHA-1 restrictions."
-        else -> "Search failed: ${apiException?.statusCode ?: "unknown"} ${message ?: "Check internet and API key."}"
-    }
-}
-
-private fun Exception.isPlacesAccessDenied(): Boolean {
-    return (this as? ApiException)?.statusCode == 9011
-}
-
-private fun Exception.toPlaceDetailsErrorMessage(): String {
-    val apiException = this as? ApiException
-    return when (apiException?.statusCode) {
-        9011 -> "Place details access denied. Check Places API (New) and API key restrictions."
-        else -> "Could not open that place: ${apiException?.statusCode ?: "unknown"} ${message ?: "Try another result."}"
-    }
-}
-
-private fun AutocompletePrediction.toSearchSuggestion(): SearchSuggestion {
-    val title = getPrimaryText(null).toString()
-    val subtitle = getSecondaryText(null).toString().takeIf { it.isNotBlank() }
-
-    return SearchSuggestion(
-        title = title.ifBlank { getFullText(null).toString() },
-        subtitle = subtitle,
-        placeId = placeId
-    )
-}
 
 private suspend fun geocodeLocationName(context: Context, query: String): List<SearchSuggestion> {
     return withContext(Dispatchers.IO) {
@@ -505,4 +397,11 @@ private suspend fun geocodeLocationName(context: Context, query: String): List<S
             emptyList()
         }
     }
+}
+
+// Helper function to set destination and update UI state
+private fun selectDestination(viewModel: JourneyViewModel, latLng: LatLng, name: String) {
+    // Update the ViewModel with the new destination
+    viewModel.setDestination(latLng, name)
+    // No additional UI state needed here as composable observes ViewModel's destinationName
 }

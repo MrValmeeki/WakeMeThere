@@ -10,13 +10,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.material3.Scaffold
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.rememberNavController
 import com.example.wakemethere.ui.JourneyViewModel
 import com.example.wakemethere.ui.navigation.NavGraph
 import com.example.wakemethere.ui.theme.WakeMeThereTheme
-import com.google.android.libraries.places.api.Places
+import org.maplibre.android.MapLibre
 
 class MainActivity : ComponentActivity() {
 
@@ -53,15 +54,10 @@ class MainActivity : ComponentActivity() {
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
+        MapLibre.getInstance(this)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        // Initialize Places
-        val apiKey = packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
-            .metaData.getString("com.google.android.geo.API_KEY") ?: ""
-        if (!Places.isInitialized() && apiKey.isNotEmpty()) {
-            Places.initializeWithNewPlacesApiEnabled(applicationContext, apiKey)
-        }
 
         checkAndRequestPermissions()
 

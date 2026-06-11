@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
@@ -33,13 +34,18 @@ import androidx.navigation.NavController
 import com.example.wakemethere.service.LocationService
 import com.example.wakemethere.ui.JourneyViewModel
 import com.example.wakemethere.ui.navigation.Screen
+import com.example.wakemethere.util.LatLng
 import com.example.wakemethere.util.RouteHelper
+import com.example.wakemethere.util.rememberMapViewWithLifecycle
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.LatLngBounds
-import com.google.maps.android.compose.*
+import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.annotations.PolylineOptions
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng as MapLibreLatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.location.LocationComponentActivationOptions
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -55,9 +61,8 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
     var routePoints by remember { mutableStateOf<List<LatLng>>(emptyList()) }
     var isRouteLoading by remember { mutableStateOf(false) }
-    val liveMapCameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(userLocation ?: LatLng(0.0, 0.0), 15f)
-    }
+    
+    val liveMapView = rememberMapViewWithLifecycle()
 
     // Progress Calculation
     val progress = remember(currentETA, startETA) {
@@ -96,34 +101,12 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
 
         routePoints = if (start != null && destination != null) {
             isRouteLoading = true
-            val route = RouteHelper.fetchShortestDrivingRoute(context, start, destination)
+            val result = RouteHelper.fetchShortestDrivingRoute(start, destination)
             isRouteLoading = false
-            route?.points ?: listOf(start, destination)
+            result?.points ?: listOf(start, destination)
         } else {
             isRouteLoading = false
             emptyList()
-        }
-    }
-
-    LaunchedEffect(showLiveMap, routePoints, userLocation, selectedLocation) {
-        if (!showLiveMap) return@LaunchedEffect
-
-        val visiblePoints = routePoints.ifEmpty {
-            listOfNotNull(userLocation, selectedLocation)
-        }
-
-        if (visiblePoints.size > 1) {
-            val boundsBuilder = LatLngBounds.builder()
-            visiblePoints.forEach(boundsBuilder::include)
-            liveMapCameraPositionState.animate(
-                CameraUpdateFactory.newLatLngBounds(boundsBuilder.build(), 120)
-            )
-        } else {
-            userLocation?.let {
-                liveMapCameraPositionState.animate(
-                    CameraUpdateFactory.newLatLngZoom(it, 15f)
-                )
-            }
         }
     }
 
@@ -172,7 +155,7 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
                 Text(
                     text = destinationName,
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color.Gray
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                 )
             }
             IconButton(onClick = { showLiveMap = true }) {
@@ -183,13 +166,14 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
         Spacer(modifier = Modifier.weight(1f))
 
         // Globe Animation
+        val globeTrackColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.1f)
         Box(
             modifier = Modifier.size(260.dp),
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawCircle(
-                    color = Color.LightGray.copy(alpha = 0.3f),
+                    color = globeTrackColor,
                     radius = 120.dp.toPx(),
                     style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
                 )
@@ -205,8 +189,8 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val c = this.center
-                    drawCircle(color = Color(0xFF4CAF50).copy(alpha = 0.5f), radius = 35.dp.toPx(), center = c.plus(Offset(-25f, -15f)))
-                    drawCircle(color = Color(0xFF4CAF50).copy(alpha = 0.4f), radius = 30.dp.toPx(), center = c.plus(Offset(30f, 25f)))
+                    drawCircle(color = Color.White.copy(alpha = 0.2f), radius = 35.dp.toPx(), center = c.plus(Offset(-25f, -15f)))
+                    drawCircle(color = Color.White.copy(alpha = 0.15f), radius = 30.dp.toPx(), center = c.plus(Offset(30f, 25f)))
                 }
             }
 
@@ -222,7 +206,7 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
                     imageVector = Icons.Default.AirplanemodeActive,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp).rotate(rotation + 180f) // Reverted to previous rotation
+                    modifier = Modifier.size(28.dp).rotate(rotation + 180f)
                 )
             }
         }
@@ -233,8 +217,8 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
             Column(
                 modifier = Modifier.padding(24.dp),
@@ -247,7 +231,7 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     Text(
                         text = if (currentETA > 0) "$currentETA" else "--",
                         style = MaterialTheme.typography.displayLarge.copy(fontSize = 64.sp),
@@ -259,7 +243,7 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
                     text = "MINUTES TO ARRIVAL",
                     style = MaterialTheme.typography.labelMedium,
                     letterSpacing = 2.sp,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                 )
             }
         }
@@ -294,23 +278,59 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
         ) {
             Surface(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    GoogleMap(
+                    AndroidView(
+                        factory = { liveMapView },
                         modifier = Modifier.fillMaxSize(),
-                        cameraPositionState = liveMapCameraPositionState,
-                        properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
-                        uiSettings = MapUiSettings(myLocationButtonEnabled = true)
-                    ) {
-                        selectedLocation?.let { dest ->
-                            Marker(state = MarkerState(position = dest), title = destinationName)
-                            userLocation?.let { start ->
-                                Polyline(
-                                    points = routePoints.ifEmpty { listOf(start, dest) },
-                                    color = Color.Blue,
-                                    width = 8f
-                                )
+                        update = { mv ->
+                            mv.getMapAsync { map ->
+                                if (map.style == null) {
+                                    map.setStyle(Style.Builder().fromUri("https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json")) { style ->
+                                        if (hasLocationPermission) {
+                                            val locationComponent = map.locationComponent
+                                            val options = LocationComponentActivationOptions.builder(context, style)
+                                                .useDefaultLocationEngine(true)
+                                                .build()
+                                            locationComponent?.activateLocationComponent(options)
+                                            locationComponent?.isLocationComponentEnabled = true
+                                        }
+                                    }
+                                }
+
+                                // Handle elements only after style is ready
+                                map.getStyle { style ->
+                                    map.clear()
+                                    
+                                    val visiblePoints = routePoints.ifEmpty {
+                                        listOfNotNull(userLocation, selectedLocation)
+                                    }
+
+                                    if (visiblePoints.size > 1) {
+                                        val boundsBuilder = LatLngBounds.Builder()
+                                        visiblePoints.forEach { boundsBuilder.include(MapLibreLatLng(it.latitude, it.longitude)) }
+                                        map.animateCamera(CameraUpdateFactory.newLatLngBounds(boundsBuilder.build(), 120))
+                                    } else {
+                                        userLocation?.let {
+                                            map.animateCamera(CameraUpdateFactory.newLatLngZoom(MapLibreLatLng(it.latitude, it.longitude), 15.0))
+                                        }
+                                    }
+
+                                    selectedLocation?.let { dest ->
+                                        map.addMarker(MarkerOptions()
+                                            .position(MapLibreLatLng(dest.latitude, dest.longitude))
+                                            .title(destinationName))
+                                        
+                                        if (routePoints.size >= 2) {
+                                            map.addPolyline(PolylineOptions()
+                                                .addAll(routePoints.map { MapLibreLatLng(it.latitude, it.longitude) })
+                                                .color(android.graphics.Color.parseColor("#1B1B1B"))
+                                                .width(5f))
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
+                    )
+
                     if (isRouteLoading) {
                         LinearProgressIndicator(
                             modifier = Modifier
@@ -332,8 +352,9 @@ fun JourneyScreen(navController: NavController, viewModel: JourneyViewModel) {
 
 @Composable
 private fun JourneyProgressBar(progress: Float, stripeOffset: Float) {
-    val progressGreen = Color(0xFF16C784)
-    val trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
+    val accentColor = MaterialTheme.colorScheme.primary // ScooterYellow
+    val darkAccent = MaterialTheme.colorScheme.secondary // DarkCharcoal
+    val trackColor = darkAccent.copy(alpha = 0.15f)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -370,7 +391,7 @@ private fun JourneyProgressBar(progress: Float, stripeOffset: Float) {
 
                     while (x < size.width + size.height) {
                         drawLine(
-                            color = Color.White.copy(alpha = 0.45f),
+                            color = Color.White.copy(alpha = 0.3f),
                             start = Offset(x, size.height),
                             end = Offset(x + size.height * 0.65f, 0f),
                             strokeWidth = stripeStroke
@@ -384,7 +405,7 @@ private fun JourneyProgressBar(progress: Float, stripeOffset: Float) {
                         .fillMaxWidth(progress.coerceIn(0f, 1f))
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(14.dp))
-                        .background(progressGreen)
+                        .background(accentColor)
                 )
             }
 
@@ -394,15 +415,15 @@ private fun JourneyProgressBar(progress: Float, stripeOffset: Float) {
                     .size(handleSize)
                     .align(Alignment.CenterStart),
                 shape = RoundedCornerShape(13.dp),
-                color = progressGreen,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+                color = accentColor,
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
                 tonalElevation = 6.dp,
                 shadowElevation = 4.dp
             ) {
                 Icon(
                     Icons.Default.DirectionsBus,
                     contentDescription = "Journey progress",
-                    tint = Color.White,
+                    tint = darkAccent,
                     modifier = Modifier.padding(8.dp)
                 )
             }
@@ -412,14 +433,14 @@ private fun JourneyProgressBar(progress: Float, stripeOffset: Float) {
                     .size(endIconSize)
                     .align(Alignment.CenterEnd),
                 shape = RoundedCornerShape(13.dp),
-                color = Color(0xFFFF1F1F),
+                color = darkAccent,
                 tonalElevation = 6.dp,
                 shadowElevation = 4.dp
             ) {
                 Icon(
                     Icons.Default.LocationOn,
                     contentDescription = "Destination",
-                    tint = Color.White,
+                    tint = accentColor,
                     modifier = Modifier.padding(8.dp)
                 )
             }

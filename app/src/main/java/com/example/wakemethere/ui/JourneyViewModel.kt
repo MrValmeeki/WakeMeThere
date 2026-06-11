@@ -9,7 +9,7 @@ import com.example.wakemethere.data.DestinationRepository
 import com.example.wakemethere.data.local.AppDatabase
 import com.example.wakemethere.data.model.Destination
 import com.example.wakemethere.service.LocationService
-import com.google.android.gms.maps.model.LatLng
+import com.example.wakemethere.util.LatLng
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
